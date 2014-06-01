@@ -1,0 +1,25 @@
+<div ng-controller="NavbarCtrl">
+    <button ng-click="go('/')">Home</button>
+    <button ng-repeat="item in menu" ng-show="!currentUserSignedIn" ng-click="go(item.link)">
+        {{item.title}}
+    </button>
+    <button ng-repeat="item in authMenu" ng-show="currentUserSignedIn" ng-click="logout()">
+        {{item.title}}
+    </button>
+    <!--<div>
+        <ul ng-hide="currentUser">
+            <li><a href="/login">Log In</a></li>
+            <li><a href="/signup">Sign up</a></li>
+        </ul>
+        <ul ng-show="currentUser">
+            <li class="dropdown">
+                <a class="dropdown-toggle">Welcome, {{ currentUser.username }} <b class="caret"></b></a>
+                <ul class="dropdown-menu">
+                    <li><a ng-click="logout()"><span class="glyphicon-log-out"></span> Logout</a></li>
+                </ul>
+            </li>
+        </ul>
+    </div>-->
+    <!--/.navbar-collapse -->
+</div>
+<!--/.navbar -->

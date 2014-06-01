@@ -1,3 +1,8 @@
+var express = require('express');
+var app = express()
+  , server = require('http').createServer(app)
+  , io = require('socket.io').listen(server);
+
 var mysql = require('mysql');
 var bodyParser = require('body-parser');
 var compress = require('compression');
@@ -5,6 +10,7 @@ var cookieParser = require('cookie-parser');
 var session = require('express-session');
 var passport = require('passport');
 var LocalStrategy = require('passport-local').Strategy;
+var methodOverride = require('method-override');
 
 var connection = mysql.createConnection({
   host     : 'localhost',
@@ -12,11 +18,13 @@ var connection = mysql.createConnection({
   password : 'bonjour3',
   database : 'mysql'
 });
+//var io = require('socket.io').listen(server);
+/*var socket = require('socket.io')({
+  'transports': ['websocket','xhr-polling','flashsocket'],
+  'flash policy port': 10843
+});*/
 
-var express = require('express');
-var app = express();
-var server = require('http').Server(app);
-var io = require('socket.io')(server);
+//var io = socket(server);
 
 var crypto = require('crypto');
  
@@ -75,10 +83,6 @@ function decrypt(cipher, key) {
 var key = crypto.createHash('sha256').update('Nixnogen').digest();
     //iv = 'a2xhcgAAAAAAAAAA';
 
-server.listen(3000, function() {
-    console.log('Listening on port %d', server.address().port);
-});
-
 app.use(express.static(__dirname + '/app'));
 app.engine('html', require('ejs').renderFile);
 
@@ -102,23 +106,35 @@ passport.use('local-login',
             return done(null, false, req.session.messages = ['Oops!']); // req.session.messages is the way to set flashdata using connect-flash
           } 
 
+          var user = rows[0];
           //console.log(req.user);
 
-          var buf = rows[0].password;
+          var buf = user.password;
 
-          var todec = buf + rows[0].lastfour;
+          var todec = buf + user.lastfour;
 
           //console.log(req.session.savedletters);
 
           var dec = decrypt(todec, key);
 
           // if the user is found but the password is wrong
-          if (!(dec == password))
-              return done(null, false, req.session.messages = ['Oops!']); // create the loginMessage and save it to session as flashdata
+          if (!(dec == password)) {
+              return done(null, false); // create the loginMessage and save it to session as flashdata
+              console.log("something didnt work");
+          }
 
-          // all is well, return successful user
-          return done(null, rows[0]);     
+          // all is well, return successful use
+          var newUser = {username: user.email, password: user.password}
+          
+          req.login(newUser, function(err) {
+            if (err) { return next(err); }
+          });
+
+          console.log(req.user);
+
+          return done(null, newUser);     
         });
+
           /*if(err) {
             return done(err);
           }
@@ -168,47 +184,49 @@ passport.use('local-signup',
         passReqToCallback : true
       }, 
       function(req, username, password, done) {
+
         //connection.connect();
-        var user = [];
-        connection.query("select * from users where email = '"+username+"'", function(err,rows){
+        //var user = [];
+        connection.query("select * from users where username = '"+username+"'", function(err,rows){
           var savedletters;
 
           if (err)
             return done(err);
           if (rows.length) {
-            return done(null, false, req.session.messages('signupMessage', 'That email is already taken.'));
+            return done(null, false, req.session.messages = ['Taken!']);
           } else {
 
-            var newUserMysql = new Object();
+            var newUserMysql = {};
 
             var buf = password;
             
             var enc = encrypt(buf, key);
 
-            newUserMysql.email = username;
+            newUserMysql.username = username;
 
             var passstring = enc.substring(0, enc.length - 5);
             savedletters = enc.substring(enc.length - 5, enc.length - 1);
 
             newUserMysql.password = savedletters; // use the generateHash function in our user model
 
-            //onsole.log(passstring);
+            //console.log(passstring);
 
-            var insertQuery = "INSERT INTO users ( email, password, lastfour ) values ('" + username +"','"+ passstring +"','"+ savedletters +"')";
+            var insertQuery = "INSERT INTO users ( username, password, lastfour ) values ('" + username +"','"+ passstring +"','"+ savedletters +"')";
 
-            connection.query(insertQuery,function(err,rows){
+            connection.query(insertQuery, function(err,rows2){
               //console.log(rows.insertId);
               //console.log(newUserMysql.id);
-              newUserMysql.id = rows.insertId;
-
-              req.login(newUserMysql, function(err) {
-                if (err) { return next(err); }
-              });
-
-              console.log(req.user);
-
+              //newUserMysql.id = rows2.insertId;
               return done(null, newUserMysql);
             });
+
+            req.login(newUserMysql, function(err) {
+              if (err) { return err; }
+            })
+
+            //console.log(req.user);
+
+            //console.log(req.user);
           }; 
         });
 
@@ -252,24 +270,31 @@ passport.use('local-signup',
         //connection.end();
       }
   ));
+
 app.use(compress());
+
+app.engine('html', require('ejs').renderFile);
+app.set('view engine', 'html');
+app.set('views', __dirname + '/app/views');
+
 app.use(cookieParser());
 app.use(bodyParser());
-app.use(session({ secret: 'keyboard cat', cookie: { secure: true }}));
+app.use(methodOverride());
+app.use(session({secret: "my secret"}));
 app.use(passport.initialize());
 app.use(passport.session());
 
 passport.serializeUser(function(user, done) {
   //connection.connect();
-  done(null, user.email);
+  done(null, user.username);
   //connection.end();
 });
 
-passport.deserializeUser(function(err, email, done) {
-  console.log(email + " &*&*&*&*&*&*&*&*&*&*&*&");
+passport.deserializeUser(function(err, username, done) {
+  console.log(username + " &*&*&*&*&*&*&*&*&*&*&*&");
   //function(id, function(err, user) {
   //connection.connect();
-  connection.query('SELECT * FROM users WHERE email = ?', [email], function(err, rows) {
+  connection.query('SELECT * FROM users WHERE username = ?', [username], function(err, rows) {
     //for(var x = 0; x < rows.length; x++) {
       //users[x] = rows[x];
       //if(users[x].email == email) {
@@ -281,17 +306,54 @@ passport.deserializeUser(function(err, email, done) {
   //connection.end();
 });
 
-app.get('/', function(req, res) {
+app.get('/partials/:filename', 
+  function(req, res){
+    var filename = req.params.filename;
+    if(!filename) return;  // might want to change this
+    res.render("partials/" + filename );
+  }
+);
+
+var session = require('./server/controllers/session');
+var auth = require('./server/config/auth');
+
+app.post('/auth/users', passport.authenticate('local-signup', { failureRedirect: '/login'}), function (req, res){
+   console.log(req.user);
+   res.redirect('/profile');
+});
+
+app.post('/auth/session', function (req, res, next) {passport.authenticate('local-login', function(err, user, info) {
+    var error = err || info;
+    if (error) { return res.json(400, error); }
+    req.logIn(user, function(err) {
+      if (err) { return res.send(err); }
+      res.json(req.user.user_info);
+    });
+    //console.log(req.user);
+  })(req, res, next);
+});
+
+app.delete('/auth/session', session.logout);
+
+app.get('*', function(req, res) {
+    if(req.user) {
+      //console.log(req.user);
+    }
+
     res.render('index.html');
 });
 
-app.get('/login', function(req, res) {
+//var path = require('path');
+  
+//app.get('/auth/session', auth.ensureAuthenticated, session.session);
+
+/*app.get('/login', function(req, res) {
     res.render('partials/login.html');
 });
 
 app.get('/logout', function(req, res){
   req.logout();
-  console.log(req.user);
+  //console.log(req.user);
   res.redirect('/login');
 });
 
@@ -299,11 +361,14 @@ app.get('/signup', function(req, res) {
   res.render('partials/signup.html');
 });
 
-app.post('/signup', passport.authenticate('local-signup', { successRedirect: '/users',
+app.post('/signup', passport.authenticate('local-signup', { 
                                                             failureRedirect: '/login',
-                                                            failureFlash : true }));
+                                                            failureFlash : true }), function(req, res) {
+  //console.log(req.user);
+  res.redirect('/users');
+});
 
-  /*function(req, res) {
+  function(req, res) {
     //res.render('partials/signup.html');
       if(err) {
         console.log(err);
@@ -326,14 +391,19 @@ app.post('/signup', passport.authenticate('local-signup', { successRedirect: '/u
   }
 );*/
 
-app.get('/users', function(req, res){
+/*function ensureAuthenticated(req, res, next) {
+  if (req.isAuthenticated()) { return next(); }
+  res.redirect('/login')
+}
+
+app.get('/users', ensureAuthenticated, function(req, res){
+  console.log(req.user.password);
   res.render('partials/profile.html');
-  //console.log(req.body);
 });
 
 app.post('/login', passport.authenticate('local-login', { failureRedirect: '/login'}),
 
-    /*function(req, res, next) {
+    function(req, res, next) {
       if (sess.views) {
         sess.views++
         res.setHeader('Content-Type', 'text/html')
@@ -343,25 +413,23 @@ app.post('/login', passport.authenticate('local-login', { failureRedirect: '/log
       } else {
         sess.views = 1
         res.end('welcome to the session demo. refresh!')
-      }*/
+      }
       function(req, res) {
        //console.log(req.user);
 
-        if (req.body.remember) {  
-          req.session.cookie.maxAge = 1000 * 60 * 3;
-        } else {
-          req.session.cookie.expires = false;
-        }
-        res.redirect('/users');
+       //console.log(req.user);
+       res.redirect('/users');
       }
-);
-var pf = require('policyfile').createServer();
+);*/
 
-pf.listen(10843, function(){
+//var pf = require('policyfile').createServer();
+
+/*pf.listen(10843, function(){
   console.log("policy file started");
-});
-//io.configure(function(){
-io.set('transports', ['websocket','xhr-polling','flashsocket']);
+});*/
+
+//io.configure(function() {
+  //io.set('log level', 1);
 //});
 
 /*var me = function(req, res) {
@@ -385,11 +453,24 @@ io.set('transports', ['websocket','xhr-polling','flashsocket']);
   }
 };*/
 
+server.listen(8000, function(){
+  console.log("started");
+});
+
+io.configure(function() {
+  io.set('transports', ['websocket','xhr-polling','flashsocket']);
+  io.set('flash policy port', 10843);
+  io.set('log level', 0);
+});
+
 io.sockets.on('connection', function (socket) {
 
   socket.on('message', function (data) {
     //USER
     var usernameflash = {};
+    var scoreforsend;
+
+    console.log(data);
 
     console.log(typeof data);
     if(typeof data == "string") {
@@ -403,16 +484,14 @@ io.sockets.on('connection', function (socket) {
 
       var options = {
         host: 'localhost',
-        port: 3000,
+        port: 8000,
         path: '/users',
         method: 'GET'
       }
 
-      //The url we want is: 'www.random.org/integers/?num=1&min=1&max=10&col=1&base=10&format=plain&rnd=new'
-
       var callback = function(response) {
 
-        response.send(usernameflash);
+        console.log(usernameflash);
 
         //the whole response has been recieved, so we just print it out here
         response.on('end', function () {
@@ -429,6 +508,10 @@ io.sockets.on('connection', function (socket) {
       console.log("something else happened...");
     }
   });
+
+  socket.on('disconnect', function(){
+    console.log("disconnected");
+  })
 
   socket.on('turnon', function(){
     connection.connect();

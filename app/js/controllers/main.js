@@ -1,15 +1,5 @@
 var app = angular.module('groundup');
 
-app.controller('MainCtrl', function ($scope, $location) {
-  $scope.menu = [{
-    'title': 'Home',
-    'link': '/'
-  }/*, {
-    'title': 'Sign up',
-    'link': '/signup',
-  }*/];
-
-  $scope.go = function(location) {
-    $location.path(location);
-  }
+app.controller('MainCtrl', function ($rootScope, $scope, Auth, $location) {
+  console.log($rootScope.currentUser);
 });
